@@ -3,13 +3,20 @@
 #include <time.h>
 #include <string.h>
 #include <math.h>
+#include <float.h>
+#include <sys/time.h>
 
 #include "vector3.h"
 #include "md_sim.h"
 #include "prtcl.h"
 #include "lj.h"
 
-#define RND_PARAM 0.05
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+#define K2T(K,N) (K * 2./ (N * 3.))
+#define TAU 0.1
 
 int md_sim_ctor(struct md_sim_t *md_sim, long int n_prtcls, double size, double dt, double target_T, FILE *dump_file)
 {
@@ -20,8 +27,12 @@ int md_sim_ctor(struct md_sim_t *md_sim, long int n_prtcls, double size, double 
     md_sim->size = size;
     md_sim->n = n_prtcls;
     md_sim->dt = dt;
-    md_sim->targets.K = n_prtcls * target_T * 3/2;
     md_sim->dump_file = dump_file;
+
+    md_sim->targets.K = n_prtcls * target_T * 3./2;
+    
+    md_sim->tweaks.tau = TAU;
+    md_sim->tweaks.thermostat = 1;
 
     return 0;
 }
@@ -33,7 +44,7 @@ int md_sim_dtor(struct md_sim_t *md_sim)
     return 0;
 }
 
-int md_sim_init(struct md_sim_t *md_sim)
+int md_sim_init_crystal(struct md_sim_t *md_sim, double rnd_param)
 {
     int q = (int)round(pow(md_sim->n, 1./3));
     double step = md_sim->size / q;
@@ -45,9 +56,9 @@ int md_sim_init(struct md_sim_t *md_sim)
         for (int j = 0; j < q; ++j)
             for (int k = 0; k < q; ++k)
             {
-                md_sim->prtcls[count].r.x = step / 2 + i * step + step * RND_PARAM * (rand() * 1. - RAND_MAX/2) / RAND_MAX;
-                md_sim->prtcls[count].r.y = step / 2 + j * step + step * RND_PARAM * (rand() * 1. - RAND_MAX/2) / RAND_MAX;
-                md_sim->prtcls[count].r.z = step / 2 + k * step + step * RND_PARAM * (rand() * 1. - RAND_MAX/2) / RAND_MAX;
+                md_sim->prtcls[count].r.x = step / 2 + i * step + step * rnd_param * (rand() * 1. - RAND_MAX/2) / RAND_MAX;
+                md_sim->prtcls[count].r.y = step / 2 + j * step + step * rnd_param * (rand() * 1. - RAND_MAX/2) / RAND_MAX;
+                md_sim->prtcls[count].r.z = step / 2 + k * step + step * rnd_param * (rand() * 1. - RAND_MAX/2) / RAND_MAX;
                 ++count;
             }
     
@@ -62,7 +73,7 @@ int md_sim_init(struct md_sim_t *md_sim)
         memset(&md_sim->prtcls[i].v, 0, 3 * sizeof(double));
     
     md_sim_print_prtcls(md_sim);
-    fprintf(md_sim->dump_file, "t,U,K,E,<U>,<K>,<E>,lambda\n");
+    fprintf(md_sim->dump_file, "t,U,K,E,<U>,<K>,<E>,T,lambda,tau,t_on\n");
     
     md_sim_resolve_eff_r(md_sim);
     md_sim_update_stats(md_sim);
@@ -71,16 +82,55 @@ int md_sim_init(struct md_sim_t *md_sim)
     return 0;
 }
 
+int md_sim_dump_v_distribution(struct md_sim_t *md_sim, double dv, const char *filename)
+{
+    FILE *file = fopen(filename, "w");
+
+    long int *v_abs_norm = (long int *)calloc(md_sim->n, sizeof(long int));
+
+    long int v_max = 0;
+    for (long int i = 0; i < md_sim->n; ++i)
+    {
+        v_abs_norm[i] = lrint(sqrt(vector3_square(&md_sim->prtcls[i].v)) / dv);
+        if (v_abs_norm[i] > v_max) 
+            v_max = v_abs_norm[i];
+    }
+
+    fprintf(file, "V_abs,dN,V_maxwell\n");
+    
+    for (long int v = 0; v < v_max; ++v)
+    {
+        long int count = 0;
+        for (long int i = 0; i < md_sim->n; ++i)
+            if (v_abs_norm[i] == v)
+                ++count;
+        fprintf(file, "%ld,%lg,%lg\n", v, count * 1./ md_sim->n, 
+                maxwell_by_abs(1, 1, v * dv, K2T(md_sim->targets.K, md_sim->n)) * dv);
+    }
+
+    free(v_abs_norm);
+    return 0;
+}
+
+double maxwell_by_abs(double k, double m, double v, double T)
+{
+   return 4 * M_PI * v*v * pow(m / (2 * M_PI * k * T), 1.5) * exp(- m * v*v / (2 * k * T));
+}
+
 int md_sim_dump_stats(struct md_sim_t *md_sim, double t)
 {
-    return fprintf(md_sim->dump_file, "%015.07e,%015.07e,%015.07e,%015.07e,%015.07e,%015.07e,%015.07e,%015.07e\n", t, 
+    return fprintf(md_sim->dump_file, 
+        "%015.07e,%015.07e,%015.07e,%015.07e,%015.07e,%015.07e,%015.07e,%015.07e,%015.07e,%015.07e,%d\n", t, 
         md_sim->stats.U, 
         md_sim->stats.K, 
         md_sim->stats.U + md_sim->stats.K, 
         md_sim->stats.U / md_sim->n, 
         md_sim->stats.K / md_sim->n, 
-        (md_sim->stats.U + md_sim->stats.K) / md_sim->n, 
-        md_sim->stats.lambda);
+        (md_sim->stats.U + md_sim->stats.K) / md_sim->n,
+        K2T(md_sim->stats.K, md_sim->n),
+        md_sim->stats.lambda,
+        md_sim->tweaks.tau,
+        md_sim->tweaks.thermostat);
 }
 
 void md_sim_print_prtcls(struct md_sim_t *md_sim)
@@ -103,9 +153,16 @@ struct md_sim_stats_t *md_sim_update_stats(struct md_sim_t *md_sim)
     return &md_sim->stats;
 }
 
+void md_sim_lambda_scale(struct md_sim_t *md_sim)
+{
+    for (long int i = 0; i < md_sim->n; ++i)
+        vector3_mul(&md_sim->prtcls[i].v, md_sim->stats.lambda);
+}
+
 double md_sim_update_lambda(struct md_sim_t *md_sim)
 {
-    return (md_sim->stats.lambda = 0.);
+    return (md_sim->stats.lambda = 
+        sqrt(1 + md_sim->dt / md_sim->tweaks.tau * (md_sim->targets.K / md_sim->stats.K - 1)));
 }
 
 double md_sim_update_U(struct md_sim_t *md_sim)
@@ -131,11 +188,12 @@ void md_sim_resolve_eff_r(struct md_sim_t *md_sim)
         prtcl_resolve_eff_r(&md_sim->prtcls[i], md_sim->size);
 }
 
-int md_sim_run(struct md_sim_t *md_sim, double time)
+int md_sim_run(struct md_sim_t *md_sim, double time_end)
 {
     double t = 0.;
-    while (t < time)
+    while (t < time_end)
     {
+        printf("t = %lg\n", t);
         for (long int i = 0; i < md_sim->n; ++i)
         {
             struct vector3_t dx;
@@ -165,9 +223,17 @@ int md_sim_run(struct md_sim_t *md_sim, double time)
             vector3_mul(&F, md_sim->dt);
             vector3_add(&md_sim->prtcls[i].v, &md_sim->prtcls[i].v, &F);
         }
-        
+       
+        //double sK = fabs(md_sim->targets.K - md_sim->stats.K) / md_sim->stats.K;
+
+        if (t > time_end/2)
+            md_sim->tweaks.thermostat = 0;
+
         md_sim_update_stats(md_sim);
         md_sim_dump_stats(md_sim, t);       
+       
+        if (md_sim->tweaks.thermostat)
+            md_sim_lambda_scale(md_sim);
 
         t += md_sim->dt;
     }

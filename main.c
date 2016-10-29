@@ -8,6 +8,8 @@
 #include "md_sim.h"
 #include "get_type_opt.h"
 
+#define CRYSTAL_RND 0.05
+
 int main(int argc, char *argv[])
 {
     double dt = 0.;
@@ -15,15 +17,16 @@ int main(int argc, char *argv[])
     double target_T = 0.;
     double size = 0.;
     double time = 0.;
+    double dv = 0.0001;
     long int N = 0;
     FILE *dump_file = NULL;
 
     int opt = 0;
     
     const char usage_str[] = "usage: %s [-s size] [-N particles] [-r density]\
-[-t time] [-d delta_t] [-T target_temp] [-o dump_file]\n";
+[-t time] [-d delta_t] [-T target_temp] [-o dump_file] [-v dv in distribution]\n";
     
-    while ((opt = getopt(argc, argv, "s:N:t:d:o:T:r:")) != -1)
+    while ((opt = getopt(argc, argv, "s:N:t:d:o:T:r:v:")) != -1)
     {
         switch(opt)
         {
@@ -41,6 +44,9 @@ int main(int argc, char *argv[])
             break;
         case 'T':
             target_T = get_pos_double_opt(optarg, "target temperature");
+            break;
+        case 'v':
+            dv = get_pos_double_opt(optarg, "dv in distribution");
             break;
         case 'r':
             density = get_pos_double_opt(optarg, "density");
@@ -77,17 +83,18 @@ int main(int argc, char *argv[])
         N = (long int)round(density * size*size*size);
     else
     {
-        fprintf(stderr, "Args error: try input as args strictly 2 values from list: density, N, size.\n");
+        fprintf(stderr, "Args error: enter as args strictly 2 values from list: density, N, size.\n");
         return -1;
     }
 
-    printf("size = %lf, N = %ld, time = %lg, dt = %lg, target_temp = %lg, density = %lg\n", 
-        size, N, time, dt, target_T, density);
+    printf("size = %lf, N = %ld, time = %lg, dt = %lg, target_temp = %lg, density = %lg, dv = %lg\n", 
+        size, N, time, dt, target_T, density, dv);
 
     struct md_sim_t md_sim;
     md_sim_ctor(&md_sim, N, size, dt, target_T, dump_file);
-    md_sim_init(&md_sim);
+    md_sim_init_crystal(&md_sim, CRYSTAL_RND);
     md_sim_run(&md_sim, time);
+    md_sim_dump_v_distribution(&md_sim, dv, "distr.csv");
     md_sim_dtor(&md_sim);
 
     fclose(dump_file);

@@ -5,7 +5,7 @@ INC_DIRS := ./
 BIN_DIR := ./bin
 
 # flags
-CFLAGS := -g -std=c11 -Wall
+CFLAGS := -O2 -g -std=c11 -Wall
 LDFLAGS := -lm
 
 INCLUDE := $(addprefix -I, $(INC_DIRS))
