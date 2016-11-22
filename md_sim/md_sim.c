@@ -224,8 +224,6 @@ int md_sim_run(struct md_sim_t *md_sim, double time_end)
             vector3_add(&md_sim->prtcls[i].v, &md_sim->prtcls[i].v, &F);
         }
        
-        //double sK = fabs(md_sim->targets.K - md_sim->stats.K) / md_sim->stats.K;
-
         if (t > time_end/2)
             md_sim->tweaks.thermostat = 0;
 
