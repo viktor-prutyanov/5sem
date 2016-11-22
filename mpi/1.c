@@ -10,18 +10,13 @@ int main(int argc, char *argv[])
     double data = (rank == 0) ? 1.234 : 0;
     //printf("Process %d / %d data = %lg (initial)\n", rank, size, data);
     
+    MPI_Status status;
     if (rank == 0)
-    {
         MPI_Send(&data, 1, MPI_DOUBLE, 1, 0, MPI_COMM_WORLD);
-    }
     else if (rank == size - 1)
-    {
-        MPI_Status status;
         MPI_Recv(&data, 1, MPI_DOUBLE, size - 2, 0, MPI_COMM_WORLD, &status);
-    }
     else
     {
-        MPI_Status status;
         MPI_Recv(&data, 1, MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD, &status);
         MPI_Send(&data, 1, MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD);
     }

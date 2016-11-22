@@ -10,15 +10,14 @@ int main(int argc, char *argv[])
     double data = rank * rank;
     printf("Process %d / %d data = %lg (initial)\n", rank, size, data);
     
+    MPI_Status status;
     if (rank % 2 == 0)
     {
-        MPI_Status status;
         MPI_Send(&data, 1, MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD);
         MPI_Recv(&data, 1, MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD, &status);
     }
     else
     {
-        MPI_Status status;
         MPI_Send(&data, 1, MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD);
         MPI_Recv(&data, 1, MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD, &status);
     }
